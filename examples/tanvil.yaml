@@ -1,0 +1,52 @@
+apiVersion: tanvil.dev/v1alpha1
+kind: TalosCluster
+metadata:
+  name: homelab
+spec:
+  # Kubernetes API endpoint host; machine configs use https://<endpoint>:6443.
+  endpoint: k8s.example.com
+  # Created by `tanvil gensecrets`; relative paths resolve against this file.
+  secretsFile: secrets.yaml
+  versions:
+    talos: v1.14.7        # installer image tag and machine config contract
+    kubernetes: 1.35.0
+  image:
+    platform: metal       # factory.talos.dev/<platform>-installer/<schematic>:<talos>
+    schematic:            # posted to https://factory.talos.dev/schematics
+      customization:
+        systemExtensions:
+          officialExtensions:
+            - siderolabs/iscsi-tools
+  install:
+    # CEL expression selecting the install disk (UnattendedInstallConfig).
+    diskSelector: disk.dev_path == "/dev/sda"
+    wipe: false
+  configPatches:
+    all:
+      - patches/common.yaml
+    controlPlane: []
+    worker: []
+  network:
+    interface: ens3
+    prefix: 24
+    gateway: 10.0.0.1
+  nodes:
+    - name: cp-01
+      role: controlplane
+      address: 10.0.0.11
+    - name: cp-02
+      role: controlplane
+      address: 10.0.0.12
+    - name: cp-03
+      role: controlplane
+      address: 10.0.0.13
+    - name: worker-01
+      role: worker
+      address: 10.0.0.21
+      # Patches for this node only, applied after configPatches: a file path or an inline document.
+      patches:
+        - apiVersion: v1alpha1
+          kind: UnattendedInstallConfig
+          provisioning:
+            diskSelector:
+              match: disk.dev_path == "/dev/nvme0n1"

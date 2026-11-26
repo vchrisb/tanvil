@@ -1,0 +1,6 @@
+/tanvil
+/dist/
+# cluster material generated in the working directory
+secrets.yaml
+talosconfig
+kubeconfig
