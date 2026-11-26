@@ -25,6 +25,9 @@ import (
 	"github.com/vchrisb/tanvil/internal/factory"
 )
 
+// testSchematicID is the Image Factory ID of the schematic in clusterYAML (customization: {}).
+const testSchematicID = "376567988ad370138ad8b2698212367b8edcb69b5fd68c80be1f2ec7d603b4ba"
+
 const clusterYAML = `
 apiVersion: tanvil.dev/v1alpha1
 kind: TalosCluster
@@ -88,8 +91,13 @@ func newTestManager(t *testing.T, opts Options) (*Manager, *bytes.Buffer) {
 		t.Fatal(err)
 	}
 
+	// The schematic ID is computed locally; the factory is only contacted with SubmitToFactory.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Write([]byte(`{"id":"schematic123"}`)) //nolint:errcheck
+		if !opts.SubmitToFactory {
+			t.Error("image factory contacted without --submit-to-factory")
+		}
+
+		w.Write([]byte(`{"id":"` + testSchematicID + `","schematic":"customization: {}\n"}`)) //nolint:errcheck
 	}))
 	t.Cleanup(srv.Close)
 
@@ -103,6 +111,34 @@ func newTestManager(t *testing.T, opts Options) (*Manager, *bytes.Buffer) {
 	}
 
 	return m, out
+}
+
+func TestSchematicIDSubmitToFactory(t *testing.T) {
+	m, out := newTestManager(t, Options{SubmitToFactory: true})
+
+	id, err := m.SchematicID(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if id != testSchematicID || !strings.Contains(out.String(), "submitted to") {
+		t.Errorf("id = %s, output:\n%s", id, out)
+	}
+}
+
+func TestSchematicIDFactoryMismatch(t *testing.T) {
+	m, _ := newTestManager(t, Options{SubmitToFactory: true})
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Write([]byte(`{"id":"other","schematic":"customization: {}\n"}`)) //nolint:errcheck
+	}))
+	t.Cleanup(srv.Close)
+
+	m.Factory = &factory.Client{BaseURL: srv.URL, HTTPClient: srv.Client()}
+
+	if _, err := m.SchematicID(context.Background()); err == nil || !strings.Contains(err.Error(), "update tanvil") {
+		t.Fatalf("expected ID mismatch error, got %v", err)
+	}
 }
 
 func TestGenSecretsRefusesOverwrite(t *testing.T) {
@@ -140,7 +176,7 @@ func TestNodeConfig(t *testing.T) {
 			contains: []string{
 				"type: controlplane",
 				"kind: UnattendedInstallConfig",
-				"image: factory.talos.dev/metal-installer/schematic123:v1.14.7",
+				"image: factory.talos.dev/metal-installer/" + testSchematicID + ":v1.14.7",
 				`match: disk.dev_path == "/dev/sda"`,
 				"wipe: true",
 				"endpoint: https://k8s.example.com:6443",
@@ -159,7 +195,7 @@ func TestNodeConfig(t *testing.T) {
 				"type: worker", "hostname: worker-01", "address: 10.0.0.21/24", "role: worker", "time.example.com",
 				// node patches override the generated install document and patch the v1alpha1 document
 				`match: disk.dev_path == "/dev/nvme0n1"`,
-				"image: factory.talos.dev/metal-installer/schematic123:v1.14.7",
+				"image: factory.talos.dev/metal-installer/" + testSchematicID + ":v1.14.7",
 				"vm.nr_hugepages: \"64\"",
 			},
 			notContains: []string{`match: disk.dev_path == "/dev/sda"`},
@@ -385,7 +421,7 @@ func TestUpgradeDryRunDoesNotContactNodes(t *testing.T) {
 	}
 
 	for _, s := range []string{
-		"Dry run: would upgrade cp-01 (10.0.0.11) to factory.talos.dev/metal-installer/schematic123:v1.14.7",
+		"Dry run: would upgrade cp-01 (10.0.0.11) to factory.talos.dev/metal-installer/" + testSchematicID + ":v1.14.7",
 		"Dry run: would upgrade worker-01 (10.0.0.21)",
 	} {
 		if !strings.Contains(out.String(), s) {
@@ -608,7 +644,7 @@ func TestDiff(t *testing.T) {
 	}
 
 	m.liveVersion = fakeVersions(map[string]NodeVersion{
-		"cp-01": {Talos: "v1.14.7", Schematic: "schematic123"},
+		"cp-01": {Talos: "v1.14.7", Schematic: testSchematicID},
 	})
 	m.liveConfigDiff = func(_ context.Context, node config.Node, data []byte) (string, error) {
 		if !strings.Contains(string(data), "hostname: "+node.Name) {
@@ -631,7 +667,7 @@ func TestDiff(t *testing.T) {
 	for _, s := range []string{
 		"==> cp-01 (10.0.0.11): in sync",
 		"==> worker-01 (10.0.0.21):\n    talos: running v1.14.6, want v1.14.7",
-		"schematic: running none (not an Image Factory image), want schematic123",
+		"schematic: running none (not an Image Factory image), want " + testSchematicID,
 		"    config:\n      -old\n      +new",
 	} {
 		if !strings.Contains(out.String(), s) {
@@ -640,8 +676,8 @@ func TestDiff(t *testing.T) {
 	}
 
 	m.liveVersion = fakeVersions(map[string]NodeVersion{
-		"cp-01":     {Talos: "v1.14.7", Schematic: "schematic123"},
-		"worker-01": {Talos: "v1.14.7", Schematic: "schematic123"},
+		"cp-01":     {Talos: "v1.14.7", Schematic: testSchematicID},
+		"worker-01": {Talos: "v1.14.7", Schematic: testSchematicID},
 	})
 	m.liveConfigDiff = func(context.Context, config.Node, []byte) (string, error) { return "", nil }
 	m.liveKubernetes = func(context.Context) (string, error) { return m.Cluster.Spec.Versions.Kubernetes, nil }
@@ -654,14 +690,14 @@ func TestDiff(t *testing.T) {
 func TestUpgradeSkipsUpToDateNodes(t *testing.T) {
 	m, out := newTestManager(t, Options{DryRun: true, SkipPodCheck: true})
 	m.liveVersion = fakeVersions(map[string]NodeVersion{
-		"cp-01": {Talos: "v1.14.7", Schematic: "schematic123"},
+		"cp-01": {Talos: "v1.14.7", Schematic: testSchematicID},
 	})
 
 	if err := m.Upgrade(context.Background(), m.Cluster.OrderedNodes()); err != nil {
 		t.Fatal(err)
 	}
 
-	if !strings.Contains(out.String(), "cp-01 already runs v1.14.7 with schematic schematic123, skipping") {
+	if !strings.Contains(out.String(), "cp-01 already runs v1.14.7 with schematic "+testSchematicID+", skipping") {
 		t.Errorf("cp-01 was not skipped: %q", out.String())
 	}
 

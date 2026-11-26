@@ -12,6 +12,8 @@ import (
 
 	"github.com/blang/semver/v4"
 	"sigs.k8s.io/yaml"
+
+	"github.com/vchrisb/tanvil/internal/factory"
 )
 
 const (
@@ -66,12 +68,27 @@ type Versions struct {
 	Kubernetes string `json:"kubernetes"`
 }
 
+// DefaultFactory is the public Talos Image Factory host.
+const DefaultFactory = "factory.talos.dev"
+
 // Image selects the Image Factory installer image.
 type Image struct {
+	// Factory is the Image Factory host serving the installer image, e.g. a self-hosted factory
+	// or a mirror; it defaults to factory.talos.dev.
+	Factory string `json:"factory,omitempty"`
 	// Platform is the installer flavor, e.g. metal or vmware.
 	Platform string `json:"platform"`
-	// Schematic is posted verbatim to https://factory.talos.dev/schematics.
+	// Schematic is the Image Factory schematic. Its ID is computed locally, as the factory does.
 	Schematic map[string]any `json:"schematic"`
+}
+
+// FactoryHost returns spec.image.factory or the default factory.
+func (i Image) FactoryHost() string {
+	if i.Factory != "" {
+		return i.Factory
+	}
+
+	return DefaultFactory
 }
 
 // Install controls the unattended installation to disk (UnattendedInstallConfig).
@@ -160,6 +177,8 @@ var (
 	k8sVersionRe   = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
 	// RFC 1123 label, which is what Talos accepts as hostname and Kubernetes as node name.
 	nodeNameRe = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$`)
+	// A registry host: DNS name or IP, optional port.
+	factoryHostRe = regexp.MustCompile(`^[A-Za-z0-9.-]+(:\d+)?$`)
 )
 
 // Load reads, strictly decodes and validates the cluster definition at path.
@@ -242,6 +261,12 @@ func (c *TalosCluster) Validate() error {
 
 	if _, ok := s.Image.Schematic["customization"]; !ok {
 		fail("spec.image.schematic.customization", "is required")
+	} else if _, err := factory.ParseSchematic(s.Image.Schematic); err != nil {
+		fail("spec.image.schematic", "%v", err)
+	}
+
+	if f := s.Image.Factory; f != "" && !factoryHostRe.MatchString(f) {
+		fail("spec.image.factory", "must be a host name with an optional port, without scheme or path, got %q", f)
 	}
 
 	if s.Install.DiskSelector == "" {
@@ -379,7 +404,7 @@ func (c *TalosCluster) ClusterEndpointURL() string {
 
 // InstallerImage is the Image Factory installer reference for a schematic ID.
 func (c *TalosCluster) InstallerImage(schematicID string) string {
-	return fmt.Sprintf("factory.talos.dev/%s-installer/%s:%s", c.Spec.Image.Platform, schematicID, c.Spec.Versions.Talos)
+	return fmt.Sprintf("%s/%s-installer/%s:%s", c.Spec.Image.FactoryHost(), c.Spec.Image.Platform, schematicID, c.Spec.Versions.Talos)
 }
 
 func (c *TalosCluster) byRole(role string) []Node {

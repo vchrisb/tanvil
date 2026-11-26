@@ -37,6 +37,8 @@ func NewRootCommand() *cobra.Command {
 	pf.BoolVar(&flags.opts.DryRun, "dry-run", false, "show what would change without changing the cluster")
 	pf.BoolVar(&flags.opts.Redact, "redact", true,
 		"replace private keys, tokens and encryption secrets in the output (--redact=false to show them)")
+	pf.BoolVar(&flags.opts.SubmitToFactory, "submit-to-factory", false,
+		"register the schematic with the Image Factory (needed once for a new schematic); by default its ID is computed locally")
 	pf.BoolVar(&flags.opts.Force, "force", false, "overwrite existing output files; with upgrade, also upgrade nodes that are already up to date")
 
 	root.AddCommand(

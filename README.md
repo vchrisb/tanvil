@@ -36,8 +36,9 @@ spec:
     talos: v1.14.7                 # installer tag and machine config contract
     kubernetes: 1.35.0
   image:
-    platform: metal                # factory.talos.dev/<platform>-installer/<id>:<talos>
-    schematic:                     # posted to factory.talos.dev to get <id>
+    factory: factory.talos.dev     # optional: self-hosted factory or mirror
+    platform: metal                # <factory>/<platform>-installer/<id>:<talos>
+    schematic:                     # <id> is computed locally from this
       customization:
         systemExtensions:
           officialExtensions: [siderolabs/iscsi-tools]
@@ -87,6 +88,25 @@ multi-document.
 
 Run `tanvil validate` to check the file without contacting anything.
 
+### Image Factory and air-gapped clusters
+
+tanvil never needs access to the Image Factory. The schematic ID is a SHA-256
+hash of the schematic's canonical form, and tanvil computes it locally exactly
+as the factory does (unknown schematic fields are rejected). The installer
+image is `<factory>/<platform>-installer/<id>:<talos>`, with `spec.image.factory`
+defaulting to `factory.talos.dev`.
+
+The nodes still have to pull that image. Without internet access, either point
+`spec.image.factory` at a self-hosted Image Factory, or keep the default and
+configure a registry mirror for `factory.talos.dev` in a config patch
+(`RegistryMirrorConfig`).
+
+A factory only serves images for schematics it knows. When the schematic is
+new, run any command once with `--submit-to-factory` (e.g.
+`tanvil genconfig --submit-to-factory`) to register it with `spec.image.factory`;
+tanvil then also checks that the factory assigned the same ID. Schematics
+created in the factory UI before need no submission.
+
 ## Commands
 
 | Command | What it does |
@@ -105,6 +125,8 @@ Run `tanvil validate` to check the file without contacting anything.
 | `validate` | Validate `tanvil.yaml`. |
 
 Global flags: `-c/--config` (default `tanvil.yaml`), `--dry-run`,
+`--submit-to-factory` (register the schematic, see
+[Image Factory](#image-factory-and-air-gapped-clusters)),
 `--redact` (default true, see below),
 `--force` (overwrite existing output files; for `upgrade`, also upgrade nodes
 that are already up to date).

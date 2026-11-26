@@ -53,6 +53,9 @@ type Options struct {
 	AllowNotReady bool
 	// Redact replaces private keys, tokens and encryption secrets in the output.
 	Redact bool
+	// SubmitToFactory registers the schematic with the Image Factory; by default its ID is only
+	// computed locally, without network access.
+	SubmitToFactory bool
 	// DrainTimeout bounds the drain before an upgrade reboot, including the delete fallback.
 	DrainTimeout time.Duration
 	// DeleteIfEvictionFails retries a failed drain by deleting the pods, bypassing PodDisruptionBudgets.
@@ -96,7 +99,7 @@ func New(cluster *config.TalosCluster, opts Options) *Manager {
 	m := &Manager{
 		Cluster:          cluster,
 		Options:          opts,
-		Factory:          factory.New(),
+		Factory:          factory.New(cluster.Spec.Image.FactoryHost()),
 		Out:              os.Stdout,
 		In:               bufio.NewReader(os.Stdin),
 		PodCheckTimeout:  300 * time.Second,
@@ -163,15 +166,31 @@ func (m *Manager) secretsBundle() (*secrets.Bundle, error) {
 	return bundle, nil
 }
 
-// SchematicID resolves the schematic once per run through the Image Factory.
+// SchematicID computes the schematic ID once per run, locally and exactly as the Image Factory
+// does, so no factory access is needed. With Options.SubmitToFactory the schematic is also
+// registered with the factory, which is needed once before the factory can serve a new schematic.
 func (m *Manager) SchematicID(ctx context.Context) (string, error) {
 	if m.schematicID != "" {
 		return m.schematicID, nil
 	}
 
-	id, err := m.Factory.SchematicID(ctx, m.Cluster.Spec.Image.Schematic)
+	id, err := factory.LocalID(m.Cluster.Spec.Image.Schematic)
 	if err != nil {
 		return "", fmt.Errorf("resolving schematic: %w", err)
+	}
+
+	if m.Options.SubmitToFactory {
+		remote, err := m.Factory.Submit(ctx, m.Cluster.Spec.Image.Schematic)
+		if err != nil {
+			return "", fmt.Errorf("submitting schematic: %w", err)
+		}
+
+		if remote != id {
+			return "", fmt.Errorf("image factory assigned schematic ID %s, but tanvil computed %s: "+
+				"the factory knows schematic fields tanvil does not, update tanvil", remote, id)
+		}
+
+		m.printf("Schematic %s submitted to %s\n", id, m.Cluster.Spec.Image.FactoryHost())
 	}
 
 	m.printf("Schematic ID: %s\n", id)

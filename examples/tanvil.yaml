@@ -11,8 +11,9 @@ spec:
     talos: v1.14.7        # installer image tag and machine config contract
     kubernetes: 1.35.0
   image:
-    platform: metal       # factory.talos.dev/<platform>-installer/<schematic>:<talos>
-    schematic:            # posted to https://factory.talos.dev/schematics
+    # factory: factory.talos.dev   # self-hosted Image Factory or mirror (default)
+    platform: metal       # <factory>/<platform>-installer/<schematic>:<talos>
+    schematic:            # ID computed locally; register a new one with --submit-to-factory
       customization:
         systemExtensions:
           officialExtensions:

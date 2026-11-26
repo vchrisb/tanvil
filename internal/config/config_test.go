@@ -56,6 +56,11 @@ func TestParseValid(t *testing.T) {
 	if got := c.InstallerImage("abc"); got != "factory.talos.dev/metal-installer/abc:v1.14.7" {
 		t.Errorf("InstallerImage = %s", got)
 	}
+
+	c.Spec.Image.Factory = "factory.example.com:5000"
+	if got := c.InstallerImage("abc"); got != "factory.example.com:5000/metal-installer/abc:v1.14.7" {
+		t.Errorf("InstallerImage with factory = %s", got)
+	}
 }
 
 func TestParseRejectsUnknownFields(t *testing.T) {
@@ -80,6 +85,8 @@ func TestValidateErrors(t *testing.T) {
 		"family mismatch": {"address: 10.0.0.21", "address: fd00::21", "IP family"},
 		"prefix":          {"prefix: 24", "prefix: 33", "between 1 and 32"},
 		"no schematic":    {"customization: {}", "overlay: {}", "customization: is required"},
+		"schematic field": {"customization: {}", "customization: {extensions: []}", "spec.image.schematic: invalid schematic"},
+		"factory scheme":  {"platform: metal", "platform: metal\n    factory: https://factory.example.com", "spec.image.factory: must be a host name"},
 		"name":            {"name: worker-01", "name: Worker_01", "RFC 1123"},
 		"empty patch":     {"- {name: cp-02, role: controlplane, address: 10.0.0.12}", "- {name: cp-02, role: controlplane, address: 10.0.0.12, patches: [\"\"]}", "spec.nodes[2].patches[0]: must not be empty"},
 		"scalar patch":    {"  network:", "  configPatches:\n    all: [42]\n  network:", "spec.configPatches.all[0]: must be a file path"},

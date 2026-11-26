@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-func TestSchematicID(t *testing.T) {
+func TestSubmit(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 
@@ -25,13 +25,13 @@ func TestSchematicID(t *testing.T) {
 			return
 		}
 
-		w.Write([]byte(`{"id":"abc123"}`)) //nolint:errcheck
+		w.Write([]byte(`{"id":"abc123","schematic":"customization: {}\n"}`)) //nolint:errcheck
 	}))
 	defer srv.Close()
 
 	c := &Client{BaseURL: srv.URL, HTTPClient: srv.Client()}
 
-	id, err := c.SchematicID(context.Background(), map[string]any{
+	id, err := c.Submit(context.Background(), map[string]any{
 		"customization": map[string]any{
 			"systemExtensions": map[string]any{"officialExtensions": []string{"siderolabs/iscsi-tools"}},
 		},
@@ -45,7 +45,7 @@ func TestSchematicID(t *testing.T) {
 	}
 }
 
-func TestSchematicIDError(t *testing.T) {
+func TestSubmitError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "invalid schematic", http.StatusBadRequest)
 	}))
@@ -53,7 +53,7 @@ func TestSchematicIDError(t *testing.T) {
 
 	c := &Client{BaseURL: srv.URL, HTTPClient: srv.Client()}
 
-	_, err := c.SchematicID(context.Background(), map[string]any{"customization": map[string]any{}})
+	_, err := c.Submit(context.Background(), map[string]any{"customization": map[string]any{}})
 	if err == nil || !strings.Contains(err.Error(), "invalid schematic") {
 		t.Fatalf("expected factory error, got %v", err)
 	}
